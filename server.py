@@ -1,37 +1,60 @@
-import http.server, json, os, time, threading
+import http.server, json, os, time, threading, urllib.request
 from urllib.parse import urlparse, parse_qs
 
+FB = 'https://yono-ad3-default-rtdb.firebaseio.com'
 _DIR = os.path.dirname(os.path.abspath(__file__))
 PASS_FILE = os.path.join(_DIR, 'passwords.json')
 LOG_FILE = os.path.join(_DIR, 'logins.json')
 lock = threading.Lock()
 
+def fb_get(p):
+    try:
+        r = urllib.request.urlopen(f'{FB}/{p}.json', timeout=10)
+        return json.loads(r.read())
+    except: return None
+
+def fb_put(p, d):
+    req = urllib.request.Request(f'{FB}/{p}.json', data=json.dumps(d).encode(), method='PUT', headers={'Content-Type':'application/json'})
+    urllib.request.urlopen(req, timeout=10)
+
 def rd_pass():
-    if not os.path.exists(PASS_FILE): return {}
+    pwds = {}
     with lock:
-        with open(PASS_FILE) as f:
-            try: return json.load(f)
-            except: return {}
+        if os.path.exists(PASS_FILE):
+            try:
+                with open(PASS_FILE) as f: pwds = json.load(f)
+            except: pass
+    if not pwds:
+        fb = fb_get('panel_passwords')
+        if fb: pwds = fb
+    return pwds
 
 def wr_pass(d):
     with lock:
-        with open(PASS_FILE, 'w') as f:
-            json.dump(d, f)
+        with open(PASS_FILE, 'w') as f: json.dump(d, f)
+    try: fb_put('panel_passwords', d)
+    except: pass
 
 def rd_logs():
-    if not os.path.exists(LOG_FILE): return []
+    logs = []
     with lock:
-        with open(LOG_FILE) as f:
-            try: return json.load(f)
-            except: return []
+        if os.path.exists(LOG_FILE):
+            try:
+                with open(LOG_FILE) as f: logs = json.load(f)
+            except: pass
+    if not logs:
+        fb = fb_get('panel_logins')
+        if fb: logs = fb
+    return logs
 
 def wr_log(e):
     logs = rd_logs()
     logs.append(e)
     logs = logs[-200:]
     with lock:
-        with open(LOG_FILE, 'w') as f:
-            json.dump(logs, f)
+        with open(LOG_FILE, 'w') as f: json.dump(logs, f)
+    try: fb_put('panel_logins', logs)
+    except: pass
 
 def json_resp(h, code, data):
     h.send_response(code)
@@ -131,8 +154,16 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8080))
-    _DIR = os.path.dirname(os.path.abspath(__file__))
     os.chdir(_DIR)
+    # preload passwords from Firebase into local file
+    fb = fb_get('panel_passwords')
+    if fb:
+        with lock:
+            with open(PASS_FILE, 'w') as f: json.dump(fb, f)
+    fb_l = fb_get('panel_logins')
+    if fb_l:
+        with lock:
+            with open(LOG_FILE, 'w') as f: json.dump(fb_l, f)
     try:
         import threading, importlib.util, sys
         bot_path = os.path.join(_DIR, 'bot.py')
