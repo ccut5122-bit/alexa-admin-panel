@@ -6,37 +6,14 @@ DB_FILE = os.path.join(_DIR, 'bot_db.json')
 lock = threading.Lock()
 
 def rd_db():
-    with lock:
-        if os.path.exists(DB_FILE):
-            try:
-                with open(DB_FILE) as f: return json.load(f)
-            except: pass
-        return {"passwords": {}, "logins": []}
+    if os.path.exists(DB_FILE):
+        try:
+            with open(DB_FILE) as f: return json.load(f)
+        except: pass
+    return {"passwords": {}, "logins": []}
 
 def wr_db(d):
-    with lock:
-        with open(DB_FILE, 'w') as f: json.dump(d, f, indent=2)
-
-def rd_pass():
-    db = rd_db()
-    return db.get('passwords', {})
-
-def wr_pass(pwds):
-    db = rd_db()
-    db['passwords'] = pwds
-    wr_db(db)
-
-def rd_logs():
-    db = rd_db()
-    return db.get('logins', [])
-
-def wr_log(e):
-    db = rd_db()
-    logs = db.get('logins', [])
-    logs.append(e)
-    logs = logs[-200:]
-    db['logins'] = logs
-    wr_db(db)
+    with open(DB_FILE, 'w') as f: json.dump(d, f, indent=2)
 
 def json_resp(h, code, data):
     h.send_response(code)
@@ -56,16 +33,19 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         qs = parse_qs(parsed.query)
 
         if path == '/api/logins':
-            self.wfile.write(json_resp(self, 200, rd_logs()))
+            with lock:
+                db = rd_db()
+            self.wfile.write(json_resp(self, 200, db.get('logins', [])))
             return
         if path == '/api/check':
             p = qs.get('pass', [None])[0]
-            pwds = rd_pass()
-            valid = (p or '') in pwds
-            self.wfile.write(json_resp(self, 200, {'valid': valid}))
+            with lock:
+                pwds = rd_db().get('passwords', {})
+            self.wfile.write(json_resp(self, 200, {'valid': (p or '') in pwds}))
             return
         if path == '/api/passwords':
-            pwds = rd_pass()
+            with lock:
+                pwds = rd_db().get('passwords', {})
             self.wfile.write(json_resp(self, 200, pwds))
             return
         if path.startswith('/api/'):
@@ -82,47 +62,58 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             except:
                 self.wfile.write(json_resp(self, 400, {'error':'bad json'}))
                 return
-            pwds = rd_pass()
 
-            if self.path == '/api/auth':
-                p = data.get('pass', '')
-                if p in pwds:
-                    pwds[p]['last_login'] = int(time.time()*1000)
-                    pwds[p]['device'] = data.get('ua', '')[:60]
-                    wr_pass(pwds)
-                    self.wfile.write(json_resp(self, 200, {'ok': True}))
-                else:
-                    self.wfile.write(json_resp(self, 200, {'ok': False}))
-                return
+            with lock:
+                db = rd_db()
 
-            if self.path == '/api/login':
-                data['ts'] = int(time.time()*1000)
-                wr_log(data)
-                self.wfile.write(json_resp(self, 200, {'ok': True}))
-                return
-
-            if self.path == '/api/setpass':
-                p = data.get('pass', '')
-                if not p or len(p) < 3:
-                    self.wfile.write(json_resp(self, 200, {'ok': False, 'error': 'min 3 chars'}))
+                if self.path == '/api/auth':
+                    p = data.get('pass', '')
+                    pwds = db.get('passwords', {})
+                    if p in pwds:
+                        pwds[p]['last_login'] = int(time.time()*1000)
+                        pwds[p]['device'] = data.get('ua', '')[:60]
+                        wr_db(db)
+                        self.wfile.write(json_resp(self, 200, {'ok': True}))
+                    else:
+                        self.wfile.write(json_resp(self, 200, {'ok': False}))
                     return
-                if p in pwds:
-                    self.wfile.write(json_resp(self, 200, {'ok': False, 'error': 'already exists'}))
-                    return
-                pwds[p] = {'created': int(time.time()*1000), 'last_login': None, 'device': ''}
-                wr_pass(pwds)
-                self.wfile.write(json_resp(self, 200, {'ok': True}))
-                return
 
-            if self.path == '/api/delpass':
-                p = data.get('pass', '')
-                if p in pwds:
-                    del pwds[p]
-                    wr_pass(pwds)
+                if self.path == '/api/login':
+                    logs = db.get('logins', [])
+                    data['ts'] = int(time.time()*1000)
+                    logs.append(data)
+                    logs = logs[-200:]
+                    db['logins'] = logs
+                    wr_db(db)
                     self.wfile.write(json_resp(self, 200, {'ok': True}))
-                else:
-                    self.wfile.write(json_resp(self, 200, {'ok': False, 'error': 'not found'}))
-                return
+                    return
+
+                if self.path == '/api/setpass':
+                    p = data.get('pass', '')
+                    pwds = db.get('passwords', {})
+                    if not p or len(p) < 3:
+                        self.wfile.write(json_resp(self, 200, {'ok': False, 'error': 'min 3 chars'}))
+                        return
+                    if p in pwds:
+                        self.wfile.write(json_resp(self, 200, {'ok': False, 'error': 'already exists'}))
+                        return
+                    pwds[p] = {'created': int(time.time()*1000), 'last_login': None, 'device': ''}
+                    db['passwords'] = pwds
+                    wr_db(db)
+                    self.wfile.write(json_resp(self, 200, {'ok': True}))
+                    return
+
+                if self.path == '/api/delpass':
+                    p = data.get('pass', '')
+                    pwds = db.get('passwords', {})
+                    if p in pwds:
+                        del pwds[p]
+                        db['passwords'] = pwds
+                        wr_db(db)
+                        self.wfile.write(json_resp(self, 200, {'ok': True}))
+                    else:
+                        self.wfile.write(json_resp(self, 200, {'ok': False, 'error': 'not found'}))
+                    return
 
         self.wfile.write(json_resp(self, 404, {'error':'not found'}))
 
@@ -138,16 +129,14 @@ if __name__ == '__main__':
     os.chdir(_DIR)
     try:
         import threading, importlib.util, sys
-        bot_path = os.path.join(_DIR, 'bot.py')
-        if os.path.exists(bot_path):
+        spec = importlib.util.spec_from_file_location('bot_module', os.path.join(_DIR, 'bot.py'))
+        mod = importlib.util.module_from_spec(spec)
+        def run_bot():
             os.environ.setdefault('PANEL_URL', f'http://localhost:{port}')
-            spec = importlib.util.spec_from_file_location('bot_module', bot_path)
-            mod = importlib.util.module_from_spec(spec)
-            def run_bot():
-                sys.modules['bot_module'] = mod
-                spec.loader.exec_module(mod)
-            t = threading.Thread(target=run_bot, daemon=True)
-            t.start()
+            sys.modules['bot_module'] = mod
+            spec.loader.exec_module(mod)
+        t = threading.Thread(target=run_bot, daemon=True)
+        t.start()
     except Exception as e:
         print(f'Bot thread failed: {e}')
     server = http.server.HTTPServer(('', port), Handler)
