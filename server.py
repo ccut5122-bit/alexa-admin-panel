@@ -66,6 +66,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if path.startswith('/api/'):
             self.wfile.write(json_resp(self, 404, {'error':'not found'}))
             return
+        if path == '/':
+            self.path = '/admin.html'
         super().do_GET()
 
     def do_POST(self):
