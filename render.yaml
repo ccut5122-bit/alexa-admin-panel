@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: alexa-admin-panel
+    runtime: python
+    buildCommand: ""
+    startCommand: python server.py
+    envVars:
+      - key: PANEL_URL
+        value: https://alexa-admin-panel.onrender.com
