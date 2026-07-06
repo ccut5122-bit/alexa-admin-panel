@@ -131,7 +131,22 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8080))
-    os.chdir(os.path.dirname(os.path.abspath(__file__)))
+    _DIR = os.path.dirname(os.path.abspath(__file__))
+    os.chdir(_DIR)
+    try:
+        import threading, importlib.util, sys
+        bot_path = os.path.join(_DIR, 'bot.py')
+        if os.path.exists(bot_path):
+            os.environ.setdefault('PANEL_URL', f'http://localhost:{port}')
+            spec = importlib.util.spec_from_file_location('bot_module', bot_path)
+            mod = importlib.util.module_from_spec(spec)
+            def run_bot():
+                sys.modules['bot_module'] = mod
+                spec.loader.exec_module(mod)
+            t = threading.Thread(target=run_bot, daemon=True)
+            t.start()
+    except Exception as e:
+        print(f'Bot thread failed: {e}')
     server = http.server.HTTPServer(('', port), Handler)
     print(f'Server on :{port}')
     server.serve_forever()

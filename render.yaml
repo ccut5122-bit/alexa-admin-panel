@@ -7,12 +7,3 @@ services:
     envVars:
       - key: PANEL_URL
         value: https://alexa-admin-panel.onrender.com
-
-  - type: worker
-    name: alexa-admin-bot
-    runtime: python
-    buildCommand: ""
-    startCommand: python bot.py
-    envVars:
-      - key: PANEL_URL
-        value: https://alexa-admin-panel.onrender.com
