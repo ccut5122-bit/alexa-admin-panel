@@ -1,6 +1,4 @@
 *.log
-passwords.json
-logins.json
 __pycache__/
 .venv/
 .git/
