@@ -1,0 +1,4 @@
+*.log
+passwords.json
+logins.json
+__pycache__/
