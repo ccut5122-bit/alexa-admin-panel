@@ -1,8 +1,9 @@
 import http.server, json, os, time, threading
 from urllib.parse import urlparse, parse_qs
 
-PASS_FILE = '/tmp/alexa01/passwords.json'
-LOG_FILE = '/tmp/alexa01/logins.json'
+_DIR = os.path.dirname(os.path.abspath(__file__))
+PASS_FILE = os.path.join(_DIR, 'passwords.json')
+LOG_FILE = os.path.join(_DIR, 'logins.json')
 lock = threading.Lock()
 
 def rd_pass():
@@ -128,7 +129,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8080))
-    os.chdir('/tmp/alexa01')
+    os.chdir(os.path.dirname(os.path.abspath(__file__)))
     server = http.server.HTTPServer(('', port), Handler)
     print(f'Server on :{port}')
     server.serve_forever()
