@@ -1,19 +1,36 @@
-import http.server, json, os, time, threading
+import http.server, json, os, time, threading, urllib.request
 from urllib.parse import urlparse, parse_qs
 
+FB = 'https://rto86-feb-26-default-rtdb.firebaseio.com'
 _DIR = os.path.dirname(os.path.abspath(__file__))
 DB_FILE = os.path.join(_DIR, 'bot_db.json')
 lock = threading.Lock()
+
+def fb_get(p):
+    try:
+        r = urllib.request.urlopen(f'{FB}/{p}.json', timeout=10)
+        return json.loads(r.read())
+    except: return None
+
+def fb_put(p, d):
+    try:
+        req = urllib.request.Request(f'{FB}/{p}.json', data=json.dumps(d).encode(), method='PUT', headers={'Content-Type':'application/json'})
+        urllib.request.urlopen(req, timeout=10)
+    except: pass
 
 def rd_db():
     if os.path.exists(DB_FILE):
         try:
             with open(DB_FILE) as f: return json.load(f)
         except: pass
+    fb = fb_get('panel_passwords')
+    if isinstance(fb, dict):
+        return fb
     return {"passwords": {}, "logins": []}
 
 def wr_db(d):
     with open(DB_FILE, 'w') as f: json.dump(d, f, indent=2)
+    fb_put('panel_passwords', d)
 
 def json_resp(h, code, data):
     h.send_response(code)
@@ -72,6 +89,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                     if p in pwds:
                         pwds[p]['last_login'] = int(time.time()*1000)
                         pwds[p]['device'] = data.get('ua', '')[:60]
+                        db['passwords'] = pwds
                         wr_db(db)
                         self.wfile.write(json_resp(self, 200, {'ok': True}))
                     else:
@@ -127,6 +145,12 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8080))
     os.chdir(_DIR)
+    try:
+        fb = fb_get('panel_passwords')
+        if isinstance(fb, dict):
+            with lock:
+                with open(DB_FILE, 'w') as f: json.dump(fb, f)
+    except: pass
     try:
         import threading, importlib.util, sys
         spec = importlib.util.spec_from_file_location('bot_module', os.path.join(_DIR, 'bot.py'))
